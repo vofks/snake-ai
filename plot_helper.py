@@ -12,3 +12,9 @@ def plot(scores, mean_scores):
 
     plt.plot(scores, color='#00a4f0')
     plt.plot(mean_scores, color='#003f5c')
+
+
+def show_image(img):
+    plt.figure()
+    plt.imshow(img)
+    plt.show()

@@ -73,7 +73,7 @@ class Linear2(nn.Module):
 
 
 class Conv1(nn.Module):
-    def __init__(self, project, hidden_size1, hidden_size2):
+    def __init__(self, project):
         super().__init__()
 
         self.project = project
@@ -131,14 +131,14 @@ class QTrainer:
         self.criterion = nn.MSELoss()
 
     def train_step(self, state, action, reward, new_state, done):
-        state = torch.tensor(
-            np.array(state), dtype=torch.float, device=self.device)
         action = torch.tensor(action, dtype=torch.long, device=self.device)
         reward = torch.tensor(reward, dtype=torch.float, device=self.device)
+        state = torch.tensor(
+            np.array(state), dtype=torch.float, device=self.device)
         new_state = torch.tensor(
             np.array(new_state), dtype=torch.float, device=self.device)
 
-        if len(state.shape) == 1 or state.shape[0] == 1:
+        if len(state.shape) == 3:
             state = torch.unsqueeze(state, 0)
             action = torch.unsqueeze(action, 0)
             reward = torch.unsqueeze(reward, 0)
@@ -151,7 +151,8 @@ class QTrainer:
         for i in range(len(done)):
             q_new = reward[i]
             if not done[i]:
-                q_new += self.gamma * torch.max(self.model(new_state))
+                q_new += self.gamma * \
+                    torch.max(self.model(new_state[i].unsqueeze(0)))
             target[i][torch.argmax(action[i]).item()] = q_new
 
         self.optimizer.zero_grad()

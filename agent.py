@@ -4,15 +4,15 @@ import math
 import numpy as np
 import datetime
 from torchvision import transforms as T
-from PIL import Image
 from snake import SnakeEngine
 from direction import Direction
 from cell import Cell
 from constants import CELL_SIZE
 from collections import deque
 from model import Conv1, Linear1, Linear2, QTrainer
-from plot_helper import plot
+import plot_helper as plt
 from logger import ExperimentLog
+import time
 
 BUFFER_SIZE = 100_000
 BATCH_SIZE = 2000
@@ -35,16 +35,16 @@ class Agent:
 
     def render(self, env):
         resize = T.Compose([T.ToPILImage(),
-                            T.Resize((30, 40), interpolation=Image.CUBIC),
+                            T.Resize(
+                                (30, 40), interpolation=T.InterpolationMode.BICUBIC),
                             T.ToTensor()])
 
         frame = env.render().transpose((2, 0, 1))
         frame = np.ascontiguousarray(frame, dtype=np.float32)
-        frame = torch.from_numpy(frame)
+        frame = torch.from_numpy(frame).to(self.device)
         frame = resize(frame)
-        frame = frame.unsqueeze(0)
 
-        return frame
+        return frame.numpy()
 
     def get_state(self, env):
         head = env.snake[0]
@@ -135,16 +135,18 @@ class Agent:
             i = random.randint(0, 2)
             action[i] = 1
         else:
-            state0 = torch.tensor(state, dtype=torch.float, device=self.device)
-            prediction = self.model(state0)
-            arg = torch.argmax(prediction).item()
-            action[arg] = 1
+            with torch.no_grad():
+                state0 = torch.tensor(
+                    state, dtype=torch.float, device=self.device)
+                prediction = self.model(state0.unsqueeze(0))
+                arg = torch.argmax(prediction).item()
+                action[arg] = 1
 
         return action
 
 
 def train():
-    project = 'linear2_512_256'
+    project = 'Conv1'
     timestamp = datetime.datetime.now()
 
     logger = ExperimentLog(project, timestamp)
@@ -156,23 +158,23 @@ def train():
     cumulative_reward = 0
     best_score = 0
 
-    model = Linear2(project, 512, 256)
+    model = Conv1(project)
 
     agent = Agent(model)
     env = SnakeEngine()
 
     while True:
+        '''
         old_state = agent.get_state(env)
         action = agent.get_action(old_state)
         done, reward, score, frame = env.step(action)
         new_state = agent.get_state(env)
-
         '''
+
         old_state = agent.render(env)
         action = agent.get_action(old_state)
         done, reward, score, frame = env.step(action)
         new_state = agent.render(env)
-        '''
 
         cumulative_reward += reward
 
@@ -203,7 +205,7 @@ def train():
             mean_scores.append(mean_score)
             cumulative_reward = 0
 
-            plot(scores, mean_scores)
+            plt.plot(scores, mean_scores)
 
 
 if __name__ == "__main__":
