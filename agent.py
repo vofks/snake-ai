@@ -12,14 +12,13 @@ from collections import deque
 from model import Conv1, Linear1, Linear2, QTrainer
 import plot_helper as plt
 from logger import ExperimentLog
-import time
 
-BUFFER_SIZE = 100_000
-BATCH_SIZE = 2000
+BUFFER_SIZE = 50_000
+BATCH_SIZE = 128
 LEARNING_RATE = 1e-3
-EPSILON_START = 0.9
-EPSILON_END = 0.005
-EPSILON_DECAY = 15
+EPSILON_START = 1
+EPSILON_END = 0.01
+EPSILON_DECAY = 200
 
 
 class Agent:
@@ -36,10 +35,10 @@ class Agent:
     def render(self, env):
         resize = T.Compose([T.ToPILImage(),
                             T.Resize(
-                                (30, 40), interpolation=T.InterpolationMode.BICUBIC),
+                                (30, 40), interpolation=T.InterpolationMode.NEAREST),
                             T.ToTensor()])
 
-        frame = env.render().transpose((2, 0, 1))
+        frame = env.render().transpose((2, 1, 0))
         frame = np.ascontiguousarray(frame, dtype=np.float32)
         frame = torch.from_numpy(frame).to(self.device)
         frame = resize(frame)
@@ -113,10 +112,10 @@ class Agent:
         self.replay_memory.append((state, action, reward, next_state, done))
 
     def train_long(self):
-        if len(self.replay_memory) > BATCH_SIZE:
-            sample = random.sample(self.replay_memory, BATCH_SIZE)
-        else:
-            sample = self.replay_memory
+        if len(self.replay_memory) < BATCH_SIZE * 10:
+            return
+
+        sample = random.sample(self.replay_memory, BATCH_SIZE)
 
         states, actions, rewards, next_states, dones = zip(*sample)
 
@@ -144,9 +143,20 @@ class Agent:
 
         return action
 
+    def eval(self, state):
+        action = [0, 0, 0]
+        with torch.no_grad():
+            state0 = torch.tensor(state, dtype=torch.float,
+                                  device=self.device).unsqueeze(0)
+            prediction = self.model(state0)
+            index = torch.argmax(prediction).item()
+            action[index] = 1
+
+        return action
+
 
 def train():
-    project = 'Conv1'
+    project = 'Conv2'
     timestamp = datetime.datetime.now()
 
     logger = ExperimentLog(project, timestamp)
@@ -162,6 +172,7 @@ def train():
 
     agent = Agent(model)
     env = SnakeEngine()
+    steps_to_update_target_model = 0
 
     while True:
         '''
@@ -170,6 +181,8 @@ def train():
         done, reward, score, frame = env.step(action)
         new_state = agent.get_state(env)
         '''
+
+        steps_to_update_target_model += 1
 
         old_state = agent.render(env)
         action = agent.get_action(old_state)
@@ -184,11 +197,13 @@ def train():
         # remember
         agent.memorize(old_state, action, reward, new_state, done)
 
+        if steps_to_update_target_model % 4 == 0 or done:
+            agent.train_long()
+
         if done:
             # replay memory
             env.reset()
             agent.episodes += 1
-            agent.train_long()
 
             if score > best_score:
                 best_score = score

@@ -79,21 +79,15 @@ class Conv1(nn.Module):
         self.project = project
 
         self.l1 = nn.Sequential(
-            nn.Conv2d(3, 8, kernel_size=3, stride=3),
+            nn.Conv2d(3, 8, kernel_size=3, stride=2),
             nn.BatchNorm2d(8),
-            nn.MaxPool2d(2, stride=2),
-            nn.ReLU()
-        )
-
-        self.l2 = nn.Sequential(
-            nn.Conv2d(8, 16, kernel_size=3, stride=3),
+            nn.ReLU(),
+            nn.Conv2d(8, 16, kernel_size=3, stride=2),
             nn.BatchNorm2d(16),
-            nn.MaxPool2d(2, stride=2),
             nn.ReLU()
         )
 
-        self.drop_out = nn.Dropout()
-        self.fc1 = nn.Linear(8 * 5 * 6, 256)
+        self.fc1 = nn.Linear(864, 256)
         self.fc2 = nn.Linear(256, 3)
 
     def forward(self, x):

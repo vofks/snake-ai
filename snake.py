@@ -44,6 +44,7 @@ class SnakeEngine:
         self.score = 0
         self.food = None
         self.frame = 0
+        self.paused = False
 
         self._place_food()
 
@@ -64,8 +65,8 @@ class SnakeEngine:
 
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    pygame.quit()
-                    quit()
+                    self.paused = not self.paused
+                    return
 
                 self.direction = self._validate_direction(
                     event_direction_mapping[event.key]) or self.direction
@@ -95,31 +96,32 @@ class SnakeEngine:
         else:
             self._handle_action(action)
 
-        self._move_head()
-        self.snake.insert(0, self.head)
+        if not self.paused:
+            self._move_head()
+            self.snake.insert(0, self.head)
 
-        if(self.head not in self.path):
-            reward = 3
+            if(self.head not in self.path):
+                reward = 3
 
-        self.path.append(self.head)
+            self.path.append(self.head)
 
-        if self.collides() or self.frame > len(self.snake)*FRAME_FACTOR:
-            done = True
-            reward = -10
+            if self.collides() or self.frame > len(self.snake)*FRAME_FACTOR:
+                done = True
+                reward = -10
+                return done, reward, self.score, self.frame
+
+            if self.head == self.food:
+                self.score += 1
+                reward = 100
+                self._place_food()
+                self.path = deque(self.path, maxlen=len(self.snake)*2)
+            else:
+                self.snake.pop()
+
+            self._render()
+            self.clock.tick(self.speed)
+
             return done, reward, self.score, self.frame
-
-        if self.head == self.food:
-            self.score += 1
-            reward = 40
-            self._place_food()
-            self.path = deque(self.path, maxlen=len(self.snake)*2)
-        else:
-            self.snake.pop()
-
-        self._render()
-        self.clock.tick(self.speed)
-
-        return done, reward, self.score, self.frame
 
     def render(self):
         self._render()
@@ -192,13 +194,13 @@ class SnakeEngine:
 
 
 if __name__ == "__main__":
-    engine = SnakeEngine(speed=20)
+    engine = SnakeEngine(speed=10)
 
     while True:
         res = engine.step()
-        print(res[1])
+        # print(res[1])
 
-        if res[0] == True:
+        if res is not None and res[0] == True:
             print(f'Score: {res[2]}')
             break
 

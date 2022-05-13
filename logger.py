@@ -7,15 +7,16 @@ FILE_FORMAT = '.csv'
 
 
 class ExperimentLog:
-    def __init__(self, project_name, timestamp):
+    def __init__(self, project_name, timestamp, folder=RESULT_FOLDER):
         self.filename = project_name + '_' + \
             timestamp.strftime('%H-%M-%S %d-%m-%Y') + FILE_FORMAT
+        self.folder = folder
 
     def setup(self):
-        if not os.path.exists(RESULT_FOLDER):
-            os.mkdir(RESULT_FOLDER)
+        if not os.path.exists(self.folder):
+            os.mkdir(self.folder)
 
-        self.path = os.path.join(RESULT_FOLDER, self.filename)
+        self.path = os.path.join(self.folder, self.filename)
 
         if os.path.exists(self.path):
             print(
