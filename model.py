@@ -1,11 +1,8 @@
 import torch
 import torch.nn as nn
-from torch.nn.modules.activation import ReLU
-import torch.optim as optim
 import torch.nn.functional as F
 import os
 import datetime
-import numpy as np
 
 
 class Linear1(nn.Module):
@@ -14,7 +11,7 @@ class Linear1(nn.Module):
 
         self.project = project
 
-        self.linear1 = nn.Linear(13, hidden_size)
+        self.linear1 = nn.Linear(11, hidden_size)
         self.linear2 = nn.Linear(hidden_size, 3)
 
     def forward(self, x):
@@ -119,43 +116,3 @@ class Conv1(nn.Module):
 
         path = os.path.join(project_folder, file_name)
         torch.save(self.state_dict(), path)
-
-
-class QTrainer:
-    def __init__(self, model, lr, gamma, device):
-        self.device = device
-        self.lr = lr
-        self.gamma = gamma
-        self.model = model
-        self.optimizer = optim.Adam(model.parameters(), lr=self.lr)
-        self.criterion = nn.MSELoss()
-
-    def train_step(self, state, action, reward, new_state, done):
-        state = torch.tensor(
-            np.array(state), dtype=torch.float, device=self.device)
-        action = torch.tensor(action, dtype=torch.long, device=self.device)
-        reward = torch.tensor(reward, dtype=torch.float, device=self.device)
-        new_state = torch.tensor(
-            np.array(new_state), dtype=torch.float, device=self.device)
-
-        if len(state.shape) == 1 or state.shape[0] == 1:
-            state = torch.unsqueeze(state, 0)
-            action = torch.unsqueeze(action, 0)
-            reward = torch.unsqueeze(reward, 0)
-            new_state = torch.unsqueeze(new_state, 0)
-            done = (done,)
-
-        prediction = self.model(state)
-        target = prediction.clone()
-
-        for i in range(len(done)):
-            q_new = reward[i]
-            if not done[i]:
-                q_new += self.gamma * torch.max(self.model(new_state))
-            target[i][torch.argmax(action[i]).item()] = q_new
-
-        self.optimizer.zero_grad()
-        loss = self.criterion(target, prediction)
-        loss.backward()
-
-        self.optimizer.step()

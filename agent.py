@@ -1,210 +1,89 @@
 import torch
-import random
 import math
+import random
 import numpy as np
-import datetime
+from copy import deepcopy
+from replaymemory import ReplayMemory
+from trainer import Trainer
 from torchvision import transforms as T
-from PIL import Image
-from snake import SnakeEngine
-from direction import Direction
-from cell import Cell
-from constants import CELL_SIZE
-from collections import deque
-from model import Conv1, Linear1, Linear2, QTrainer
-from plot_helper import plot
-from logger import ExperimentLog
+from torch.cuda import is_available
 
-BUFFER_SIZE = 100_000
-BATCH_SIZE = 2000
-LEARNING_RATE = 1e-3
-EPSILON_START = 0.9
-EPSILON_END = 0.005
-EPSILON_DECAY = 15
+_DEFAULT_DEVICE = 'cuda' if is_available() else 'cpu'
+BATCH_SIZE = 1000
+EPSILON_START = 1.0
+EPSILON_END = 0.01
+EPSILON_DECAY = 200
+MEMORY_SIZE = 50_000
 
 
 class Agent:
-    def __init__(self, model):
-        self.episodes = 0
-        self.epsilon = 0
-        self.gamma = 0.9
-        self.replay_memory = deque(maxlen=BUFFER_SIZE)
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.model = model.to(self.device)
-        self.trainer = QTrainer(
-            self.model, LEARNING_RATE, self.gamma, self.device)
+    def __init__(self, model, device=_DEFAULT_DEVICE):
+        print(f'Device: {device}')
 
-    def render(self, env):
-        resize = T.Compose([T.ToPILImage(),
-                            T.Resize((30, 40), interpolation=Image.CUBIC),
-                            T.ToTensor()])
+        self._episode = 0
+        self._device = device
+        self._online_model = model.to(device)
+        self._target_model = deepcopy(model)
+        self._target_model.eval()
+        self._replay_memory = ReplayMemory(MEMORY_SIZE)
+        self._trainer = Trainer(
+            self._online_model, self._target_model, self._device)
 
-        frame = env.render().transpose((2, 0, 1))
-        frame = np.ascontiguousarray(frame, dtype=np.float32)
+    def _preprocess_image(self, frame):
+        preprocess = T.Compose(T.ToPILImage(), T.Resize(
+            40, interpolation=T.InterpolationMode.NEAREST), T.ToTensor())
+
+        frame = frame.transpose((2, 1, 0))
+        frame = np.ascontiguousarray(frame, dtype=np.float32) / 255
         frame = torch.from_numpy(frame)
-        frame = resize(frame)
-        frame = frame.unsqueeze(0)
 
-        return frame
+        return preprocess(frame).unsqueeze(0)
 
-    def get_state(self, env):
-        head = env.snake[0]
+    @property
+    def model(self):
+        return self._online_model
 
-        left_point = Cell(head.x - CELL_SIZE, head.y)
-        top_point = Cell(head.x, head.y - CELL_SIZE)
-        right_point = Cell(head.x + CELL_SIZE, head.y)
-        bottom_point = Cell(head.x, head.y + CELL_SIZE)
+    @property
+    def episode(self):
+        return self._episode
 
-        top_left_point = Cell(head.x - CELL_SIZE, head.y - CELL_SIZE)
-        top_right_point = Cell(head.x + CELL_SIZE, head.y - CELL_SIZE)
-        bottom_left_point = Cell(head.x - CELL_SIZE, head.y + CELL_SIZE)
-        bottom_right_point = Cell(head.x + CELL_SIZE, head.y + CELL_SIZE)
+    @episode.setter
+    def episode(self, value):
+        self._episode = value
 
-        heading_left = env.direction == Direction.LEFT
-        heading_up = env.direction == Direction.UP
-        heading_right = env.direction == Direction.RIGHT
-        heading_down = env.direction == Direction.DOWN
+    def train_short(self, *args):
+        self._trainer.step(args)
 
-        state = [
-            # front collision
-            (heading_left and env.collides(left_point)) or
-            (heading_up and env.collides(top_point)) or
-            (heading_right and env.collides(right_point)) or
-            (heading_down and env.collides(bottom_point)),
+    def optimize(self):
+        if len(self._replay_memory) < BATCH_SIZE * 10:
+            return
 
-            # right collision
-            (heading_left and env.collides(top_point)) or
-            (heading_up and env.collides(right_point)) or
-            (heading_right and env.collides(bottom_point)) or
-            (heading_down and env.collides(left_point)),
+        batch = self._replay_memory.sample(BATCH_SIZE)
 
-            # left collision
-            (heading_left and env.collides(bottom_point)) or
-            (heading_up and env.collides(left_point)) or
-            (heading_right and env.collides(top_point)) or
-            (heading_down and env.collides(right_point)),
+        self._trainer.step(batch)
 
-            # front left collision
-            (heading_left and env.collides(bottom_left_point)) or
-            (heading_up and env.collides(top_left_point)) or
-            (heading_right and env.collides(top_right_point)) or
-            (heading_down and env.collides(bottom_right_point)),
+    def update_target(self):
+        self._target_model.load_state_dict(self._online_model.state_dict())
 
-            # front right collision
-            (heading_left and env.collides(top_left_point)) or
-            (heading_up and env.collides(top_right_point)) or
-            (heading_right and env.collides(bottom_right_point)) or
-            (heading_down and env.collides(bottom_left_point)),
+    def record_experience(self, *args):
+        self._replay_memory.push(*args)
 
-            heading_left,
-            heading_up,
-            heading_right,
-            heading_down,
-
-            # food direction
-            env.food.x < env.head.x,  # left
-            env.food.y < env.head.y,  # up
-            env.food.x > env.head.x,  # right
-            env.food.y > env.head.y  # down
-        ]
-
-        return np.array(state, dtype=np.int32)
-
-    def memorize(self, state, action, reward, next_state, done):
-        self.replay_memory.append((state, action, reward, next_state, done))
-
-    def train_long(self):
-        if len(self.replay_memory) > BATCH_SIZE:
-            sample = random.sample(self.replay_memory, BATCH_SIZE)
-        else:
-            sample = self.replay_memory
-
-        states, actions, rewards, next_states, dones = zip(*sample)
-
-        self.trainer.train_step(states, actions, rewards, next_states, dones)
-
-    def train_short(self, state, action, reward, next_state, done):
-        self.trainer.train_step(state, action, reward, next_state, done)
-
-    def get_action(self, state):
-        eps_threshold = EPSILON_END + \
-            (EPSILON_START - EPSILON_END) * \
-            math.exp(-1. * self.episodes / EPSILON_DECAY)
-        action = [0, 0, 0]
-
-        if random.random() < eps_threshold:
-            i = random.randint(0, 2)
-            action[i] = 1
-        else:
-            state0 = torch.tensor(state, dtype=torch.float, device=self.device)
-            prediction = self.model(state0)
-            arg = torch.argmax(prediction).item()
-            action[arg] = 1
-
-        return action
-
-
-def train():
-    project = 'linear2_512_256'
-    timestamp = datetime.datetime.now()
-
-    logger = ExperimentLog(project, timestamp)
-    logger.setup()
-
-    scores = []
-    total_score = 0
-    mean_scores = []
-    cumulative_reward = 0
-    best_score = 0
-
-    model = Linear2(project, 512, 256)
-
-    agent = Agent(model)
-    env = SnakeEngine()
-
-    while True:
-        old_state = agent.get_state(env)
-        action = agent.get_action(old_state)
-        done, reward, score, frame = env.step(action)
-        new_state = agent.get_state(env)
-
+    def predict(self, state):
+        ''' 
+        Epsilon-Greedy Algorithm
+        https://www.wolframalpha.com/input?i=plot%5B0.01+%2B+%280.99+-+0.01%29+*+Exp%5B-x%2F200%5D%2C+%7Bx%2C+0%2C+1000%7D%5D
         '''
-        old_state = agent.render(env)
-        action = agent.get_action(old_state)
-        done, reward, score, frame = env.step(action)
-        new_state = agent.render(env)
-        '''
+        epsilon = EPSILON_END + (EPSILON_END - EPSILON_START) * \
+            math.exp(-1 * self._episode / EPSILON_DECAY)
 
-        cumulative_reward += reward
+        if random.random() <= epsilon:
+            return torch.tensor([[random.randrange(3)]], device=self._device, dtype=torch.int64)
 
-        # train short
-        agent.train_short(old_state, action, reward, new_state, done)
+        return self.action(state)
 
-        # remember
-        agent.memorize(old_state, action, reward, new_state, done)
+    def action(self, state):
+        with torch.no_grad():
+            prediction = self._online_model(state)
+            action = torch.argmax(prediction, dim=1)[0].view(1, 1).detach()
 
-        if done:
-            # replay memory
-            env.reset()
-            agent.episodes += 1
-            agent.train_long()
-
-            if score > best_score:
-                best_score = score
-                agent.model.save()
-
-            logger.logrow([agent.episodes, cumulative_reward,
-                          score, frame, best_score])
-            print('Episode:', agent.episodes, 'reward:', cumulative_reward, 'score:',
-                  score, 'best:', best_score)
-
-            scores.append(score)
-            total_score += score
-            mean_score = total_score / agent.episodes
-            mean_scores.append(mean_score)
-            cumulative_reward = 0
-
-            plot(scores, mean_scores)
-
-
-if __name__ == "__main__":
-    train()
+            return action
