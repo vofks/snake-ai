@@ -30,10 +30,10 @@ class Agent:
             self._online_model, self._target_model, self._device)
 
     def preprocess_image(frame):
-        preprocess = T.Compose(T.ToPILImage(), T.Resize(
-            20, interpolation=T.InterpolationMode.NEAREST), T.ToTensor())
+        preprocess = T.Compose([T.ToPILImage(), T.Resize(
+            20, interpolation=T.InterpolationMode.NEAREST), T.Grayscale(), T.ToTensor()])
 
-        frame = frame.transpose((2, 1, 0))
+        frame = frame.transpose((2, 0, 1))
         frame = np.ascontiguousarray(frame, dtype=np.float32) / 255
         frame = torch.from_numpy(frame)
 
