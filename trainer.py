@@ -9,8 +9,8 @@ class Trainer:
         self._target_model = target_model
         self._learning_rate = learning_rate
         self._gamma = gamma
-        self._optimizer = torch.optim.Adam(
-            self._model.parameters(), lr=self._learning_rate)
+        self._optimizer = torch.optim.RMSprop(
+            self._model.parameters())
         self._criterion = criterion
 
     def step(self, batch):
@@ -34,7 +34,7 @@ class Trainer:
         target = rewards + self._gamma * next_q_values * (1 - dones)
 
         self._optimizer.zero_grad()
-        loss = self._criterion(target, prediction)
+        loss = self._criterion(prediction, target)
         loss.backward()
 
         self._optimizer.step()

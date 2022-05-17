@@ -9,11 +9,11 @@ from torchvision import transforms as T
 from torch.cuda import is_available
 
 _DEFAULT_DEVICE = 'cuda' if is_available() else 'cpu'
-BATCH_SIZE = 1000
+BATCH_SIZE = 256
 EPSILON_START = 1.0
 EPSILON_END = 0.01
 EPSILON_DECAY = 200
-MEMORY_SIZE = 50_000
+MEMORY_SIZE = 100_000
 
 
 class Agent:
@@ -29,9 +29,9 @@ class Agent:
         self._trainer = Trainer(
             self._online_model, self._target_model, self._device)
 
-    def _preprocess_image(self, frame):
+    def preprocess_image(frame):
         preprocess = T.Compose(T.ToPILImage(), T.Resize(
-            40, interpolation=T.InterpolationMode.NEAREST), T.ToTensor())
+            20, interpolation=T.InterpolationMode.NEAREST), T.ToTensor())
 
         frame = frame.transpose((2, 1, 0))
         frame = np.ascontiguousarray(frame, dtype=np.float32) / 255
@@ -71,9 +71,9 @@ class Agent:
     def predict(self, state):
         ''' 
         Epsilon-Greedy Algorithm
-        https://www.wolframalpha.com/input?i=plot%5B0.01+%2B+%280.99+-+0.01%29+*+Exp%5B-x%2F200%5D%2C+%7Bx%2C+0%2C+1000%7D%5D
+        Plot https://www.wolframalpha.com/input?i=plot%5B0.01+%2B+%280.99+-+0.01%29+*+Exp%5B-x%2F200%5D%2C+%7Bx%2C+0%2C+1000%7D%5D
         '''
-        epsilon = EPSILON_END + (EPSILON_END - EPSILON_START) * \
+        epsilon = EPSILON_END + (EPSILON_START - EPSILON_END) * \
             math.exp(-1 * self._episode / EPSILON_DECAY)
 
         if random.random() <= epsilon:

@@ -5,9 +5,9 @@ import numpy as np
 from agent import Agent
 from env.engine import GameEngine
 from env.constants.mode import Mode
-from model import Linear1
+from model import Linear1, Linear2
 
-TARGET_UPDATE_FREQ = 1000
+TARGET_UPDATE_FREQ = 200
 
 if __name__ == '__main__':
     try:
@@ -22,7 +22,7 @@ if __name__ == '__main__':
         cumulative_reward = 0
         best_score = 0
 
-        model = Linear1('test', 256)
+        model = Linear2('test', 512, 256)
         agent = Agent(model, device=device)
 
         env = GameEngine(mode=Mode.AGENT, cell_size=5)
@@ -39,7 +39,7 @@ if __name__ == '__main__':
 
             done_t = torch.tensor([[done]], device=device, dtype=torch.int64)
             reward_t = torch.tensor([[reward]], device=device)
-            next_state_t = torch.tensor([next_state], device=device)
+            next_state_t = torch.tensor([np.array(next_state)], device=device)
 
             agent.record_experience(
                 state, action, reward_t, next_state_t, done_t)
