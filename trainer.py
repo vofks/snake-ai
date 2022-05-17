@@ -9,8 +9,8 @@ class Trainer:
         self._target_model = target_model
         self._learning_rate = learning_rate
         self._gamma = gamma
-        self._optimizer = torch.optim.RMSprop(
-            self._model.parameters())
+        self._optimizer = torch.optim.Adam(
+            self._model.parameters(), lr=learning_rate)
         self._criterion = criterion
 
     def step(self, batch):

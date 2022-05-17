@@ -31,6 +31,20 @@ class ModelBase(torch.nn.Module):
         torch.save(self.state_dict(), path)
 
 
+class LinearFlatten(ModelBase):
+    def __init__(self, project, input_size, hidden_size1, hidden_size2):
+        super().__init__(project)
+
+        self.nn = nn.Sequential(torch.nn.Flatten(), torch.nn.Linear(input_size, hidden_size1),
+                                torch.nn.ReLU(),
+                                torch.nn.Linear(hidden_size1, hidden_size2),
+                                torch.nn.ReLU(),
+                                torch.nn.Linear(hidden_size2, 3))
+
+    def forward(self, x):
+        return self.nn(x)
+
+
 class Linear1(ModelBase):
     def __init__(self, project, hidden_size):
         super().__init__(project)

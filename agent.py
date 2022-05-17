@@ -1,3 +1,4 @@
+from this import d
 import torch
 import math
 import random
@@ -13,6 +14,7 @@ BATCH_SIZE = 256
 EPSILON_START = 1.0
 EPSILON_END = 0.01
 EPSILON_DECAY = 200
+MIN_REPLAY_SIZE = 1000
 MEMORY_SIZE = 100_000
 
 
@@ -20,6 +22,7 @@ class Agent:
     def __init__(self, model, device=_DEFAULT_DEVICE):
         print(f'Device: {device}')
 
+        self._frame = 0
         self._episode = 0
         self._device = device
         self._online_model = model.to(device)
@@ -40,6 +43,14 @@ class Agent:
         return preprocess(frame).unsqueeze(0)
 
     @property
+    def frame(self):
+        return self._frame
+
+    @frame.setter
+    def frame(self, value):
+        self._frame = value
+
+    @property
     def model(self):
         return self._online_model
 
@@ -55,7 +66,7 @@ class Agent:
         self._trainer.step(args)
 
     def optimize(self):
-        if len(self._replay_memory) < BATCH_SIZE * 10:
+        if len(self._replay_memory) < MIN_REPLAY_SIZE:
             return
 
         batch = self._replay_memory.sample(BATCH_SIZE)
@@ -74,7 +85,7 @@ class Agent:
         Plot https://www.wolframalpha.com/input?i=plot%5B0.01+%2B+%280.99+-+0.01%29+*+Exp%5B-x%2F200%5D%2C+%7Bx%2C+0%2C+1000%7D%5D
         '''
         epsilon = EPSILON_END + (EPSILON_START - EPSILON_END) * \
-            math.exp(-1 * self._episode / EPSILON_DECAY)
+            math.exp(-1 * self._frame / EPSILON_DECAY)
 
         if random.random() <= epsilon:
             return torch.tensor([[random.randrange(3)]], device=self._device, dtype=torch.int64)
