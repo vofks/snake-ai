@@ -2,6 +2,10 @@
 # Created by https://www.toptal.com/developers/gitignore/api/python
 # Edit at https://www.toptal.com/developers/gitignore?templates=python
 
+### Project temps
+logs/
+*test*
+
 ### Python ###
 # Byte-compiled / optimized / DLL files
 __pycache__/

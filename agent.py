@@ -1,46 +1,36 @@
-from this import d
 import torch
 import math
 import random
 import numpy as np
-from copy import deepcopy
 from replaymemory import ReplayMemory
 from trainer import Trainer
-from torchvision import transforms as T
 from torch.cuda import is_available
 
 _DEFAULT_DEVICE = 'cuda' if is_available() else 'cpu'
-BATCH_SIZE = 256
-EPSILON_START = 1.0
-EPSILON_END = 0.01
-EPSILON_DECAY = 200
-MIN_REPLAY_SIZE = 1000
-MEMORY_SIZE = 100_000
 
 
 class Agent:
-    def __init__(self, model, device=_DEFAULT_DEVICE):
-        print(f'Device: {device}')
+    def __init__(self, model, env, memory_size, min_replay_size, batch_size, lr, epsilon_start, epsilon_end, epsilon_decay,  device=_DEFAULT_DEVICE):
+        print(f'Running on device: {device}')
 
         self._frame = 0
         self._episode = 0
         self._device = device
-        self._online_model = model.to(device)
-        self._target_model = deepcopy(model)
+        self._env = env
+
+        self._online_model = model().to(device)
+        self._target_model = model().to(device)
         self._target_model.eval()
-        self._replay_memory = ReplayMemory(MEMORY_SIZE)
+
+        self._batch_size = batch_size
+        self._epsilon_start = epsilon_start
+        self._epsilon_end = epsilon_end
+        self._epsilon_decay = epsilon_decay
+
+        self._min_replay_size = min_replay_size
+        self._replay_memory = ReplayMemory(memory_size)
         self._trainer = Trainer(
-            self._online_model, self._target_model, self._device)
-
-    def preprocess_image(frame):
-        preprocess = T.Compose([T.ToPILImage(), T.Resize(
-            20, interpolation=T.InterpolationMode.NEAREST), T.Grayscale(), T.ToTensor()])
-
-        frame = frame.transpose((2, 0, 1))
-        frame = np.ascontiguousarray(frame, dtype=np.float32) / 255
-        frame = torch.from_numpy(frame)
-
-        return preprocess(frame).unsqueeze(0)
+            self._online_model, self._target_model, self._device, learning_rate=lr)
 
     @property
     def frame(self):
@@ -66,15 +56,16 @@ class Agent:
         self._trainer.step(args)
 
     def optimize(self):
-        if len(self._replay_memory) < MIN_REPLAY_SIZE:
+        if len(self._replay_memory) < self._min_replay_size:
             return
 
-        batch = self._replay_memory.sample(BATCH_SIZE)
+        batch = self._replay_memory.sample(self._batch_size)
 
         self._trainer.step(batch)
 
     def update_target(self):
         self._target_model.load_state_dict(self._online_model.state_dict())
+        self._target_model.save()
 
     def record_experience(self, *args):
         self._replay_memory.push(*args)
@@ -84,11 +75,11 @@ class Agent:
         Epsilon-Greedy Algorithm
         Plot https://www.wolframalpha.com/input?i=plot%5B0.01+%2B+%280.99+-+0.01%29+*+Exp%5B-x%2F200%5D%2C+%7Bx%2C+0%2C+1000%7D%5D
         '''
-        epsilon = EPSILON_END + (EPSILON_START - EPSILON_END) * \
-            math.exp(-1 * self._frame / EPSILON_DECAY)
+        epsilon = self._epsilon_end + (self._epsilon_start - self._epsilon_end) * \
+            math.exp(-1 * self._frame / self._epsilon_decay)
 
         if random.random() <= epsilon:
-            return torch.tensor([[random.randrange(3)]], device=self._device, dtype=torch.int64)
+            return torch.tensor([[self._env.action_space.sample()]], device=self._device, dtype=torch.int64)
 
         return self.action(state)
 

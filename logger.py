@@ -15,19 +15,27 @@ class ExperimentLog:
         if not os.path.exists(RESULT_FOLDER):
             os.mkdir(RESULT_FOLDER)
 
-        self.path = os.path.join(RESULT_FOLDER, self.filename)
+        self._path = os.path.join(RESULT_FOLDER, self.filename)
 
-        if os.path.exists(self.path):
+        if os.path.exists(self._path):
             print(
-                f'Project log error. File: {self.path} already exists. Abort.')
+                f'Project log error. File: {self._path} already exists. Abort.')
             return False
+
+        self._new = True
 
         return True
 
-    def logrow(self, data):
-        with open(self.path, 'a', newline='') as f:
-            writer = csv.writer(f, quoting=csv.QUOTE_MINIMAL)
-            writer.writerow(data)
+    def logrow(self, **kwargs):
+        with open(self._path, 'a', newline='') as f:
+            writer = csv.DictWriter(
+                f, fieldnames=kwargs.keys(),  quoting=csv.QUOTE_MINIMAL)
+
+            if self._new:
+                writer.writeheader()
+                self._new = False
+
+            writer.writerow(kwargs)
 
 
 if __name__ == '__main__':
@@ -37,6 +45,9 @@ if __name__ == '__main__':
     if not success:
         print('Error')
 
-    log.logrow([123, 2222, 12, 10000, datetime.datetime.now()])
-    log.logrow([123, 2222, 12, 10000, datetime.datetime.now()])
-    log.logrow([123, 2222, 12, 10000, datetime.datetime.now()])
+    hello = 'world'
+    foo = 1234
+
+    log.logrow(hello=hello, foo=foo, stamp=datetime.datetime.now())
+    log.logrow(hello=hello, foo=foo, stamp=datetime.datetime.now())
+    log.logrow(hello=hello, foo=foo, stamp=datetime.datetime.now())

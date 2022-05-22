@@ -5,7 +5,7 @@ from env.engine import GameEngine
 if __name__ == "__main__":
     pygame.init()
 
-    env = GameEngine(speed=8, cell_size=20)
+    env = GameEngine(speed=8, cell_size=10)
 
     test = True
 

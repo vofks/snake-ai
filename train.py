@@ -1,104 +1,177 @@
 import sys
 import pygame
 import torch
+import datetime
 import itertools
 import numpy as np
+from logger import ExperimentLog
 from agent import Agent
 from env.engine import GameEngine
-from env.constants.mode import Mode
-from model import Linear1, Linear2, LinearFlatten
+from env.constants.agentmode import AgentMode
+from model import SingleLinear, DoubleLinear, LinearFlatten, NatureCnn
 from torch.utils.tensorboard import SummaryWriter
+from torchvision import transforms as T
 
-TARGET_UPDATE_FREQ = 1000
-LOG_DIR = './logs/snake'
-LOG_INTEVAL = 1000
+BATCH_SIZE = 256
+EPSILON_START = 1.0
+EPSILON_END = 0.1
+EPSILON_DECAY = 200
+MEMORY_SIZE = 10_000
+MIN_REPLAY_SIZE = 1000
+TARGET_UPDATE_FREQ = 100
+LR = 5e-4
+PROJECT = 'refactoring_test_5e4_double'
+LOG_DIR = './logs/' + PROJECT
+LOG_INTEVAL = 100
+IMAGE = False
+
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+image_preprocess = T.Compose([T.ToPILImage(), T.Resize(
+    80, interpolation=T.InterpolationMode.NEAREST), T.Grayscale(), T.ToTensor()])
+
+
+def preprocess_state(state):
+    if IMAGE:
+        return image_preprocess(state).unsqueeze(0).to(device)
+
+    return torch.from_numpy(state).unsqueeze(0).to(device)
+
 
 if __name__ == '__main__':
     try:
         pygame.init()
 
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
         summary_writer = SummaryWriter(LOG_DIR)
 
-        scores = []
+        episode_scores = []
         mean_scores = []
-        rewards = []
-        frames = []
+        episode_rewards = []
+        episode_length = []
+
+        max_score = 0
+        max_reward = 0
+        max_length = 0
+
         total_score = 0
         cumulative_reward = 0
         best_score = 0
 
-        env = GameEngine(mode=Mode.AGENT, cell_size=10)
-        # env.reset()
-        #state = env.get_frame()
-        #state = Agent.preprocess_image(state).to(device)
+        env = GameEngine(mode=AgentMode.AGENT, cell_size=10,
+                         state_type='img' if IMAGE else'vector')
 
-        #state_flatten = state.flatten(start_dim=1)
-        #input_size = state_flatten.shape[1]
+        state = env.reset()
 
-        #model = LinearFlatten('test', input_size, 600, 512)
-        model = Linear2('test', 256, 128)
-        agent = Agent(model, device=device)
+        state = preprocess_state(state)
 
-        state = torch.from_numpy(env.reset()).unsqueeze(0).to(device)
+        # def model(): return NatureCnn(PROJECT, state.cpu())
+
+        # def model(): return SingleLinear(PROJECT,
+        #                                  env.observation_space.shape[0], 256, env.action_space.n)
+
+        def model(): return DoubleLinear(
+            PROJECT, env.observation_space.shape[0], 512, 256, env.action_space.n)
+
+        agent = Agent(model, env, MEMORY_SIZE, MIN_REPLAY_SIZE, BATCH_SIZE, LR,
+                      EPSILON_START, EPSILON_END, EPSILON_DECAY, device=device)
+
+        # Replay buffer initialization
+        for _ in range(MIN_REPLAY_SIZE):
+            action = torch.tensor(
+                [[env.action_space.sample()]], device=device, dtype=torch.int64)
+
+            next_state, reward, done, _ = env.step(
+                action)
+
+            next_state = preprocess_state(next_state)
+
+            done = torch.tensor([[done]], device=device, dtype=torch.int64)
+            reward = torch.tensor(
+                [[reward]], device=device, dtype=torch.float32)
+
+            agent.record_experience(
+                state, action, reward, next_state, done)
+
+            state = next_state
+
+            if done:
+                state = env.reset()
+                state = preprocess_state(state)
+
+        print('Initialization finished')
+
+        # Training process
+
+        log = ExperimentLog(PROJECT, datetime.datetime.now())
+        log.setup()
+
+        state = env.reset()
+
+        state = preprocess_state(state)
 
         for step in itertools.count():
             action = agent.predict(state)
 
-            done, reward, score, frame, next_state = env.step(
-                action.item())
+            next_state, reward, done, info = env.step(
+                action)
 
             agent.frame = step
 
             cumulative_reward += reward
 
-            #next_state = Agent.preprocess_image(env.get_frame()).to(device)
+            next_state = preprocess_state(next_state)
 
-            done_t = torch.tensor([[done]], device=device, dtype=torch.int64)
-            reward_t = torch.tensor([[reward]], device=device)
-            next_state_t = torch.tensor([np.array(next_state)], device=device)
+            done = torch.tensor([[done]], device=device, dtype=torch.int64)
+            reward = torch.tensor(
+                [[reward]], device=device, dtype=torch.float32)
 
             agent.record_experience(
-                state, action, reward_t, next_state_t, done_t)
+                state, action, reward, next_state, done)
 
-            state = next_state_t
+            state = next_state
 
             agent.optimize()
 
             if done:
-                env.reset()
+                state = env.reset()
+                state = preprocess_state(state)
+
                 agent.episode += 1
-                frames.append(frame)
 
-                if score > best_score:
-                    best_score = score
+                if info['score'] > max_score:
+                    max_score = info['score']
 
-                scores.append(score)
-                total_score += score
+                if info['frame'] > max_length:
+                    max_length = info['frame']
 
-                mean_score = total_score / agent.episode
-                mean_scores.append(mean_score)
+                if cumulative_reward > max_reward:
+                    max_reward = cumulative_reward
 
-                rewards.append(cumulative_reward)
-                cumulative_reward = 0
+                episode_scores.append(info['score'])
+                episode_rewards.append(cumulative_reward)
+                episode_length.append(info['frame'])
 
-                # TODO define plotting module
-                # plt.plot(scores, mean_scores)
-
-            if step % LOG_INTEVAL == 0:
-                average_reward = np.mean(rewards)
-                average_length = np.mean(frames)
-
-                print(
-                    f'Episode: {agent.episode} Step: {step} score: {score} best score: {best_score} avg. reward: {average_reward}')
+                average_reward = np.mean(episode_rewards)
+                average_length = np.mean(episode_length)
 
                 summary_writer.add_scalar(
                     'Avarage reward', average_reward, global_step=agent.episode)
                 summary_writer.add_scalar(
                     'Avarage length', average_length, global_step=agent.episode)
 
-            if step % TARGET_UPDATE_FREQ == 0:
+                cumulative_reward = 0
+
+            if step % LOG_INTEVAL == 0 and step != 0:
+                average_score = np.mean(episode_scores)
+                average_reward = np.mean(episode_rewards)
+                average_length = np.mean(episode_length)
+
+                print(
+                    f'Ep: {agent.episode} Step: {step}\n avg. rew: {average_reward} max. rew: {max_reward}\n vag. len: {average_length} max len: {max_length}\n avg. score: {average_score} max score: {max_score}\n')
+
+                log.logrow(episode=agent.episode, step=step, average_reward=average_reward, max_reward=max_reward, average_length=average_length,
+                           max_length=max_length, average_score=average_score, max_score=max_score, stamp=datetime.datetime.now())
+
+            if step % TARGET_UPDATE_FREQ == 0 and step != 0:
                 agent.update_target()
 
     except KeyboardInterrupt:

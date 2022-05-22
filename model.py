@@ -16,7 +16,7 @@ class ModelBase(torch.nn.Module):
 
     def save(self):
         model_folder = 'model'
-        project_folder = os.path.join(model_folder, self.project)
+        project_folder = os.path.join(model_folder, self._project_name)
 
         if not os.path.exists(model_folder):
             os.makedirs(model_folder)
@@ -24,7 +24,7 @@ class ModelBase(torch.nn.Module):
         if not os.path.exists(project_folder):
             os.mkdir(project_folder)
 
-        file_name = self.project + '_' + \
+        file_name = self._project_name + '_' + \
             datetime.datetime.now().strftime('%H-%M-%S %d-%m-%Y') + '.pth'
 
         path = os.path.join(project_folder, file_name)
@@ -45,12 +45,33 @@ class LinearFlatten(ModelBase):
         return self.nn(x)
 
 
-class Linear1(ModelBase):
-    def __init__(self, project, hidden_size):
+class NatureCnn(ModelBase):
+    def __init__(self, project, frame, final_layer=512):
         super().__init__(project)
 
-        self.linear1 = torch.nn.Linear(11, hidden_size)
-        self.linear2 = torch.nn.Linear(hidden_size, 3)
+        self.cnn = nn.Sequential(
+            nn.Conv2d(1, 32, kernel_size=8, stride=4), nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU(),
+            nn.Flatten()
+        )
+
+        with torch.no_grad():
+            n_flatten = self.cnn(frame).shape[1]
+
+        self.nn = nn.Sequential(self.cnn, nn.Linear(
+            n_flatten, final_layer), nn.ReLU(), nn.Linear(final_layer, 3))
+
+    def forward(self, x):
+        return self.nn(x)
+
+
+class SingleLinear(ModelBase):
+    def __init__(self, project, imput_size, hidden_size, n_actions):
+        super().__init__(project)
+
+        self.linear1 = torch.nn.Linear(imput_size, hidden_size)
+        self.linear2 = torch.nn.Linear(hidden_size, n_actions)
 
     def forward(self, x):
         x = F.relu(self.linear1(x))
@@ -58,13 +79,13 @@ class Linear1(ModelBase):
         return self.linear2(x)
 
 
-class Linear2(ModelBase):
-    def __init__(self, project, hidden_size1, hidden_size2):
+class DoubleLinear(ModelBase):
+    def __init__(self, project, input_size, hidden_size1, hidden_size2, n_actions):
         super().__init__(project)
 
-        self.linear1 = torch.nn.Linear(11, hidden_size1)
+        self.linear1 = torch.nn.Linear(input_size, hidden_size1)
         self.linear2 = torch.nn.Linear(hidden_size1, hidden_size2)
-        self.linear3 = torch.nn.Linear(hidden_size2, 3)
+        self.linear3 = torch.nn.Linear(hidden_size2, n_actions)
 
     def forward(self, x):
         x = F.relu(self.linear1(x))
