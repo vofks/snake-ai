@@ -1,5 +1,6 @@
 import torch
 import math
+import numpy as np
 import random
 import numpy as np
 from replaymemory import ReplayMemory
@@ -65,7 +66,9 @@ class Agent:
 
     def update_target(self):
         self._target_model.load_state_dict(self._online_model.state_dict())
-        self._target_model.save()
+
+    def save(self):
+        self._online_model.save()
 
     def record_experience(self, *args):
         self._replay_memory.push(*args)
@@ -75,17 +78,20 @@ class Agent:
         Epsilon-Greedy Algorithm
         Plot https://www.wolframalpha.com/input?i=plot%5B0.01+%2B+%280.99+-+0.01%29+*+Exp%5B-x%2F200%5D%2C+%7Bx%2C+0%2C+1000%7D%5D
         '''
-        epsilon = self._epsilon_end + (self._epsilon_start - self._epsilon_end) * \
-            math.exp(-1 * self._frame / self._epsilon_decay)
+        """ epsilon = self._epsilon_end + (self._epsilon_start - self._epsilon_end) * \
+            math.exp(-1 * self._frame / self._epsilon_decay) """
+
+        epsilon = np.interp(self._frame, [0, self._epsilon_decay], [
+                            self._epsilon_start, self._epsilon_end])
 
         if random.random() <= epsilon:
-            return torch.tensor([[self._env.action_space.sample()]], device=self._device, dtype=torch.int64)
+            return torch.tensor([[self._env.action_space.sample()]], dtype=torch.int64)
 
-        return self.action(state)
+        return self.action(state.to(self._device))
 
     def action(self, state):
         with torch.no_grad():
             prediction = self._online_model(state)
             action = torch.argmax(prediction, dim=1)[0].view(1, 1).detach()
 
-            return action
+            return action.cpu()

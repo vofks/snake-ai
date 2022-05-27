@@ -4,6 +4,7 @@ import torch
 import datetime
 import itertools
 import numpy as np
+from collections import deque
 from logger import ExperimentLog
 from agent import Agent
 from env.engine import GameEngine
@@ -14,27 +15,28 @@ from torchvision import transforms as T
 
 BATCH_SIZE = 256
 EPSILON_START = 1.0
-EPSILON_END = 0.1
-EPSILON_DECAY = 200
-MEMORY_SIZE = 10_000
-MIN_REPLAY_SIZE = 1000
-TARGET_UPDATE_FREQ = 100
-LR = 5e-4
-PROJECT = 'refactoring_test_5e4_double'
+EPSILON_END = 0.01
+EPSILON_DECAY = 10_000
+MEMORY_SIZE = 100_000
+MIN_REPLAY_SIZE = 5_000
+TARGET_UPDATE_FREQ = 10_000
+LR = 5e-5
+PROJECT = 'single_512_ram_test'
 LOG_DIR = './logs/' + PROJECT
 LOG_INTEVAL = 100
 IMAGE = False
+SAVE_FREQUENCY = 10_000
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 image_preprocess = T.Compose([T.ToPILImage(), T.Resize(
-    80, interpolation=T.InterpolationMode.NEAREST), T.Grayscale(), T.ToTensor()])
+    84, interpolation=T.InterpolationMode.NEAREST), T.Grayscale(), T.ToTensor()])
 
 
 def preprocess_state(state):
     if IMAGE:
-        return image_preprocess(state).unsqueeze(0).to(device)
+        return image_preprocess(state).unsqueeze(0)
 
-    return torch.from_numpy(state).unsqueeze(0).to(device)
+    return torch.from_numpy(state).unsqueeze(0)
 
 
 if __name__ == '__main__':
@@ -43,10 +45,9 @@ if __name__ == '__main__':
 
         summary_writer = SummaryWriter(LOG_DIR)
 
-        episode_scores = []
-        mean_scores = []
-        episode_rewards = []
-        episode_length = []
+        episode_scores = deque([], maxlen=100)
+        episode_rewards = deque([], maxlen=100)
+        episode_length = deque([], maxlen=100)
 
         max_score = 0
         max_reward = 0
@@ -65,11 +66,11 @@ if __name__ == '__main__':
 
         # def model(): return NatureCnn(PROJECT, state.cpu())
 
-        # def model(): return SingleLinear(PROJECT,
-        #                                  env.observation_space.shape[0], 256, env.action_space.n)
+        def model(): return SingleLinear(PROJECT,
+                                         env.observation_space.shape[0], 512, env.action_space.n)
 
-        def model(): return DoubleLinear(
-            PROJECT, env.observation_space.shape[0], 512, 256, env.action_space.n)
+        # def model(): return DoubleLinear(
+        #     PROJECT, env.observation_space.shape[0], 512, 256, env.action_space.n)
 
         agent = Agent(model, env, MEMORY_SIZE, MIN_REPLAY_SIZE, BATCH_SIZE, LR,
                       EPSILON_START, EPSILON_END, EPSILON_DECAY, device=device)
@@ -77,16 +78,16 @@ if __name__ == '__main__':
         # Replay buffer initialization
         for _ in range(MIN_REPLAY_SIZE):
             action = torch.tensor(
-                [[env.action_space.sample()]], device=device, dtype=torch.int64)
+                [[env.action_space.sample()]], dtype=torch.int64)
 
             next_state, reward, done, _ = env.step(
                 action)
 
             next_state = preprocess_state(next_state)
 
-            done = torch.tensor([[done]], device=device, dtype=torch.int64)
+            done = torch.tensor([[done]], dtype=torch.int64)
             reward = torch.tensor(
-                [[reward]], device=device, dtype=torch.float32)
+                [[reward]], dtype=torch.float32)
 
             agent.record_experience(
                 state, action, reward, next_state, done)
@@ -120,9 +121,9 @@ if __name__ == '__main__':
 
             next_state = preprocess_state(next_state)
 
-            done = torch.tensor([[done]], device=device, dtype=torch.int64)
+            done = torch.tensor([[done]], dtype=torch.int64)
             reward = torch.tensor(
-                [[reward]], device=device, dtype=torch.float32)
+                [[reward]], dtype=torch.float32)
 
             agent.record_experience(
                 state, action, reward, next_state, done)
@@ -152,27 +153,31 @@ if __name__ == '__main__':
 
                 average_reward = np.mean(episode_rewards)
                 average_length = np.mean(episode_length)
+                average_score = np.mean(episode_scores)
 
                 summary_writer.add_scalar(
                     'Avarage reward', average_reward, global_step=agent.episode)
                 summary_writer.add_scalar(
                     'Avarage length', average_length, global_step=agent.episode)
 
+                log.logrow(episode=agent.episode, step=step, average_reward=average_reward, average_length=average_length,
+                           average_score=average_score, stamp=datetime.datetime.now())
+
+                if agent.episode % 10 == 0:
+                    print('Episode: ', agent.episode)
+                    print('Step: ', step)
+                    print('avg. reward: ', average_reward)
+                    print('avg. length: ', average_length)
+                    print('avg. score: ', average_score)
+                    print()
+
                 cumulative_reward = 0
-
-            if step % LOG_INTEVAL == 0 and step != 0:
-                average_score = np.mean(episode_scores)
-                average_reward = np.mean(episode_rewards)
-                average_length = np.mean(episode_length)
-
-                print(
-                    f'Ep: {agent.episode} Step: {step}\n avg. rew: {average_reward} max. rew: {max_reward}\n vag. len: {average_length} max len: {max_length}\n avg. score: {average_score} max score: {max_score}\n')
-
-                log.logrow(episode=agent.episode, step=step, average_reward=average_reward, max_reward=max_reward, average_length=average_length,
-                           max_length=max_length, average_score=average_score, max_score=max_score, stamp=datetime.datetime.now())
 
             if step % TARGET_UPDATE_FREQ == 0 and step != 0:
                 agent.update_target()
+
+            if step % SAVE_FREQUENCY == 0 and step != 0:
+                agent.save()
 
     except KeyboardInterrupt:
         print('Ctrl+C pressed.')

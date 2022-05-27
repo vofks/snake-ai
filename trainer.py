@@ -9,18 +9,18 @@ class Trainer:
         self._target_model = target_model
         self._learning_rate = learning_rate
         self._gamma = gamma
-        self._optimizer = torch.optim.Adam(
+        self._optimizer = torch.optim.RMSprop(
             self._model.parameters(), lr=self._learning_rate)
         self._criterion = criterion
 
     def step(self, batch):
         batch = Transition(*zip(*batch))
 
-        states = torch.cat(batch.state)
-        actions = torch.cat(batch.action)
-        rewards = torch.cat(batch.reward)
-        next_states = torch.cat(batch.next_state)
-        dones = torch.cat(batch.done)
+        states = torch.cat(batch.state).to(self._device)
+        actions = torch.cat(batch.action).to(self._device)
+        rewards = torch.cat(batch.reward).to(self._device)
+        next_states = torch.cat(batch.next_state).to(self._device)
+        dones = torch.cat(batch.done).to(self._device)
 
         q_values = self._model(states)
         prediction = q_values.gather(1, actions)
