@@ -5,6 +5,8 @@
 ### Project temps
 logs/
 *test*
+results/
+model/
 
 ### Python ###
 # Byte-compiled / optimized / DLL files
